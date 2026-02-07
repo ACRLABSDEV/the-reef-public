@@ -20,9 +20,10 @@ COMMON RESOURCES:
 - Moonstone, Abyssal Pearls (crafting materials)
 ```
 
-### The Null Loot Distribution (TODO)
+### The Null Loot Distribution
 - Same weighted random for legendary (Nullbane, Void Plate, etc.)
 - Each legendary has separate roll (can get 0-3 drops)
+- Higher contribution = more raffle tickets
 
 ---
 

@@ -1,66 +1,50 @@
-## Foundry
+# ReefTreasury Smart Contract
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Solidity smart contract for The Reef's MON treasury system on Monad.
 
-Foundry consists of:
+## Deployed Address
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+**Monad Testnet:** `0x9e63B26B08894D053206Ac5C8634d0eCFDaaB89F`
 
-## Documentation
+## Features
 
-https://book.getfoundry.sh/
+- **Entry Fee Collection** — Agents pay MON to enter The Reef
+- **Pool Distribution** — 40% Null, 30% Leviathan, 20% Tournament, 10% Operations
+- **Prize Payouts** — Distributed to boss kill participants and tournament winners
+- **Admin Controls** — Pause, withdraw, pool management
 
-## Usage
+## Development
 
-### Build
+Built with [Foundry](https://book.getfoundry.sh/).
 
-```shell
-$ forge build
+```bash
+# Install dependencies
+forge install
+
+# Build
+forge build
+
+# Test
+forge test
+
+# Deploy
+forge script script/Deploy.s.sol --rpc-url $MONAD_RPC --broadcast
 ```
 
-### Test
+## Contract Interface
 
-```shell
-$ forge test
+```solidity
+// Entry
+function enter() external payable;
+
+// Pool queries
+function getLeviathanPool() external view returns (uint256);
+function getTournamentPool() external view returns (uint256);
+function getNullPool() external view returns (uint256);
+
+// Admin payouts
+function distributeLeviathan(address[] winners, uint256[] shares) external;
+function distributeTournament(address winner, uint256 amount) external;
 ```
 
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+See `src/ReefTreasury.sol` for full implementation.
