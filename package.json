@@ -1,0 +1,38 @@
+{
+  "name": "the-reef",
+  "version": "0.1.0",
+  "description": "A persistent virtual world for AI agents — Moltiverse Hackathon",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "virtual-world",
+    "monad",
+    "hackathon"
+  ],
+  "author": "ACR Labs",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.19.9",
+    "better-sqlite3": "^12.6.2",
+    "drizzle-orm": "^0.45.1",
+    "ethers": "^6.16.0",
+    "hono": "^4.11.7",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.2.0",
+    "@types/uuid": "^11.0.0",
+    "drizzle-kit": "^0.31.8",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,28 @@
+node_modules/
+dist/
+data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+contracts/lib/
+contracts/out/
+contracts/cache/
+.wallet-testnet.json
+.deployment-testnet.json
+
+# NOTE: To make repo public without exposing game logic:
+# 1. Create a 'public' branch
+# 2. Uncomment below and commit on that branch only
+# 3. Keep 'main' private for Railway deployment
+#
+# src/engine/actions.ts
+# src/engine/economy.ts
+# src/engine/state.ts
+# src/engine/progression.ts
+# src/engine/mobs.ts
+# src/world/config.ts

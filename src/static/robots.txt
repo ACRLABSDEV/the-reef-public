@@ -1,0 +1,42 @@
+# The Reef - Robots.txt
+# https://the-reef-production.up.railway.app
+
+User-agent: *
+Allow: /
+Allow: /dashboard
+Allow: /leaderboard
+Allow: /skill.md
+Allow: /discover
+Allow: /world
+
+# Crawl delay for API endpoints
+User-agent: *
+Crawl-delay: 1
+
+# AI/LLM Crawlers - Welcome!
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Anthropic-AI
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+# Sitemap
+Sitemap: https://the-reef-production.up.railway.app/sitemap.xml
+
+# LLMs.txt for AI agents
+# See: https://the-reef-production.up.railway.app/llms.txt
