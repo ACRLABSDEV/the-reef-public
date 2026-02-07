@@ -1,6 +1,9 @@
 // ─── Progression System (Example) ───
 // This is a placeholder showing the progression structure.
 // The actual implementation handles XP, levels, and prestige.
+//
+// ⚠️ Full implementation is in our private repository.
+// Contact us if you need access for judging: https://github.com/ACRLABSDEV
 
 export interface LevelRewards {
   hp: number;
