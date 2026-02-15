@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-02-08T00:56:47.260Z",
+  "duration": 78981,
+  "summary": {
+    "passed": 3,
+    "failed": 4,
+    "total": 7
+  },
+  "results": [
+    {
+      "name": "Contract Functions",
+      "file": "contract-functions.test.ts",
+      "passed": true,
+      "duration": 16825
+    },
+    {
+      "name": "Entry Flow",
+      "file": "entry-flow.test.ts",
+      "passed": false,
+      "duration": 9988
+    },
+    {
+      "name": "Leviathan Flow",
+      "file": "leviathan-flow.test.ts",
+      "passed": true,
+      "duration": 10737
+    },
+    {
+      "name": "Null Flow",
+      "file": "null-flow.test.ts",
+      "passed": false,
+      "duration": 7402
+    },
+    {
+      "name": "Tournament Flow",
+      "file": "tournament-flow.test.ts",
+      "passed": true,
+      "duration": 9861
+    },
+    {
+      "name": "Season Flow",
+      "file": "season-flow.test.ts",
+      "passed": false,
+      "duration": 8297
+    },
+    {
+      "name": "Pool Unlock",
+      "file": "pool-unlock.test.ts",
+      "passed": false,
+      "duration": 1855
+    }
+  ]
+}

@@ -1,8 +1,10 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { seasons, seasonStats, prestige } from '../db/schema.js';
-import { desc, eq } from 'drizzle-orm';
+import { seasons, seasonStats, prestige, transactionLogs } from '../db/schema.js';
+import { desc, eq, sql } from 'drizzle-orm';
 import { getAllAgents } from '../engine/state.js';
+import { getTreasuryStatus } from '../services/treasury.js';
+import { getBossState } from '../engine/actions.js';
 
 const DEV_MODE = process.env.DEV_MODE === 'true';
 
@@ -150,6 +152,33 @@ leaderboardRoutes.get('/season', async (c) => {
     const daysSinceStart = Math.floor((Date.now() - startTime) / (24 * 60 * 60 * 1000));
     const currentDay = Math.min(daysSinceStart + 1, 7);
     
+    // Get pool balances from contract
+    let pools = { null: 0, leviathan: 0, tournament: 0, operations: 0 };
+    let totalMonCollected = 0;
+    try {
+      const treasuryStatus = await getTreasuryStatus();
+      if (treasuryStatus.pools) {
+        pools = treasuryStatus.pools;
+        totalMonCollected = pools.null + pools.leviathan + pools.tournament + pools.operations;
+      }
+    } catch (e) {
+      console.error('Failed to fetch treasury status:', e);
+    }
+    
+    // Get boss state for kill count
+    const bossState = getBossState();
+    
+    // Count leviathan kills from transaction logs
+    let leviKillCount = 0;
+    try {
+      const killLogs = db.select().from(transactionLogs)
+        .where(eq(transactionLogs.type, 'leviathan_payout'))
+        .all();
+      leviKillCount = killLogs.length;
+    } catch (e) {
+      // Table might not exist yet
+    }
+    
     // Get live agent data for leaderboard
     const xpLeaderboard = allAgents
       .sort((a, b) => b.xp - a.xp)
@@ -164,6 +193,43 @@ leaderboardRoutes.get('/season', async (c) => {
         monEarned: 0,
       }));
     
+    // Damage leaderboard - agents sorted by reputation (proxy for boss participation)
+    // TODO: Track actual boss damage per agent
+    const damageLeaderboard = allAgents
+      .filter(a => a.reputation > 0)
+      .sort((a, b) => b.reputation - a.reputation)
+      .slice(0, 10)
+      .map((a, i) => ({
+        rank: i + 1,
+        name: a.name,
+        faction: a.faction,
+        leviathanDamage: Math.floor(a.reputation * 10), // Estimate
+        nullDamage: 0,
+        monFromBosses: 0,
+      }));
+    
+    // PvP leaderboard - arena stats (need proper tracking)
+    // For now, just show reputation-based ranking without fake W/L data
+    const pvpLeaderboard = allAgents
+      .filter(a => a.reputation >= 50)
+      .sort((a, b) => b.reputation - a.reputation)
+      .slice(0, 10)
+      .map((a, i) => ({
+        rank: i + 1,
+        name: a.name,
+        faction: a.faction,
+        wins: 0,
+        losses: 0,
+        winRate: '-',
+        arenaRep: a.reputation,
+      }));
+    
+    // Economy schedule with current day highlighting
+    const economySchedule = MOCK_ECONOMY.entryFeeSchedule.map(d => ({
+      ...d,
+      isCurrent: d.day === currentDay,
+    }));
+    
     return c.json({
       mock: false,
       season: {
@@ -175,17 +241,22 @@ leaderboardRoutes.get('/season', async (c) => {
         status: season?.status || 'active',
         stats: {
           totalAgents: allAgents.length,
-          totalMonCollected: season?.totalMonCollected || 0,
-          leviathanKills: season?.leviathanKillCount || 0,
-          nullDefeated: season?.nullDefeated || false,
+          totalMonCollected: totalMonCollected,
+          leviathanKills: leviKillCount,
+          nullDefeated: false,
+          pools,
         },
       },
       leaderboards: {
         xp: xpLeaderboard,
-        damage: [],
-        pvp: [],
+        damage: damageLeaderboard,
+        pvp: pvpLeaderboard,
       },
-      economy: MOCK_ECONOMY,
+      economy: {
+        ...MOCK_ECONOMY,
+        currentDay,
+        entryFeeSchedule: economySchedule,
+      },
     });
   } catch (error) {
     console.error('Leaderboard error:', error);

@@ -16,23 +16,30 @@
  */
 
 import { ethers } from 'ethers';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const REEF_CONTRACT_ABI = require('../abi/ReefTreasury.json');
 
 // ─── Configuration ───
-const MONAD_RPC = process.env.MONAD_RPC_URL || 'https://rpc.monad.xyz';
+const MONAD_RPC = process.env.MONAD_RPC_URL || 'https://testnet-rpc.monad.xyz';
 const DEV_MODE = process.env.DEV_MODE === 'true';
 
 // Smart contract (production)
 const REEF_CONTRACT_ADDRESS = process.env.REEF_CONTRACT_ADDRESS;
 const REEF_CONTRACT_VERSION = process.env.REEF_CONTRACT_VERSION || 'v1';
 
-// Admin signer - only for contract admin functions, NOT for holding funds
-const ADMIN_PRIVATE_KEY = process.env.ADMIN_PRIVATE_KEY;
+// Backend signer - for calling distribution functions on contract
+// NOT the owner/admin - this wallet can only trigger payouts, not admin functions
+const BACKEND_PRIVATE_KEY = process.env.BACKEND_PRIVATE_KEY;
 
 // Custodial fallback (DEV_MODE only) - DEPRECATED, use contract in production
 const TREASURY_PRIVATE_KEY = process.env.TREASURY_PRIVATE_KEY;
 
 // Fee configuration - single fixed fee, not a range
-const ENTRY_FEE_MON = parseFloat(process.env.ENTRY_FEE || '0.1');
+const ENTRY_FEE_MON = parseFloat(process.env.ENTRY_FEE || '50');
+
+// Discord webhook for boss kill notifications
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 // Pool allocation percentages
 const POOL_ALLOCATION = {
@@ -63,7 +70,7 @@ const treasuryState: TreasuryState = {
 
 // ─── Provider & Wallets ───
 let provider: ethers.JsonRpcProvider | null = null;
-let adminWallet: ethers.Wallet | null = null;
+let backendWallet: ethers.Wallet | null = null;
 let custodialWallet: ethers.Wallet | null = null; // DEV_MODE only
 let reefContract: ethers.Contract | null = null;
 
@@ -74,18 +81,18 @@ function getProvider(): ethers.JsonRpcProvider {
   return provider;
 }
 
-// Admin wallet - for calling contract admin functions only
-function getAdminWallet(): ethers.Wallet | null {
-  if (!adminWallet && ADMIN_PRIVATE_KEY) {
+// Backend wallet - for calling contract admin functions only
+function getBackendWallet(): ethers.Wallet | null {
+  if (!backendWallet && BACKEND_PRIVATE_KEY) {
     try {
-      adminWallet = new ethers.Wallet(ADMIN_PRIVATE_KEY, getProvider());
-      console.log(`[Treasury] Admin wallet initialized: ${adminWallet.address}`);
+      backendWallet = new ethers.Wallet(BACKEND_PRIVATE_KEY, getProvider());
+      console.log(`[Treasury] Backend wallet initialized: ${backendWallet.address}`);
     } catch (err) {
       console.error('[Treasury] Failed to initialize admin wallet:', err);
       return null;
     }
   }
-  return adminWallet;
+  return backendWallet;
 }
 
 // Custodial wallet - ONLY for DEV_MODE testing, not production
@@ -112,45 +119,14 @@ function getTreasuryWallet(): ethers.Wallet | null {
 }
 
 // ─── Contract Interface ───
-const REEF_CONTRACT_ABI = [
-  // Read functions - pools
-  'function leviathanPool() view returns (uint256)',
-  'function nullPool() view returns (uint256)',
-  'function tournamentPool() view returns (uint256)',
-  'function operationsPool() view returns (uint256)',
-  
-  // Read functions - entry & season
-  'function baseEntryFee() view returns (uint256)',
-  'function getCurrentEntryFee() view returns (uint256)',
-  'function getSeasonDay() view returns (uint256)',
-  'function getCurrentPoolUnlock() view returns (uint256)',
-  'function getSeasonInfo() view returns (uint256 season, uint256 startTime, uint256 day, uint256 entryFee, uint256 poolUnlockBps)',
-  'function hasEnteredSeason(uint256 season, address agent) view returns (bool)',
-  'function currentSeason() view returns (uint256)',
-  'function seasonStartTime() view returns (uint256)',
-  
-  // Agent functions (called by agents directly)
-  'function enter() payable',
-  
-  // Admin functions (called by backend)
-  'function distributeLeviathan(address[] winners, uint256[] shares)',
-  'function distributeTournament(address winner, uint256 tier)',
-  'function withdrawOperations(address to, uint256 amount)',
-  'function pause()',
-  'function unpause()',
-  
-  // Events
-  'event AgentEntered(address indexed agent, uint256 amount, uint256 seasonDay, uint256 timestamp)',
-  'event LeviathanDistributed(uint256 totalAmount, uint256 winnerCount)',
-  'event TournamentDistributed(address indexed winner, uint256 amount)',
-];
+// ABI is imported from Foundry-generated artifact at ../abi/ReefTreasury.json
 
 function getReefContract(): ethers.Contract | null {
   if (!REEF_CONTRACT_ADDRESS) {
     return null;
   }
   if (!reefContract) {
-    const signer = getAdminWallet();
+    const signer = getBackendWallet();
     reefContract = new ethers.Contract(
       REEF_CONTRACT_ADDRESS,
       REEF_CONTRACT_ABI,
@@ -182,6 +158,79 @@ function parseMonAmount(amount: number): bigint {
 
 function formatMonAmount(wei: bigint): number {
   return parseFloat(ethers.formatEther(wei));
+}
+
+// ─── Discord Notifications ───
+export interface BossKillNotification {
+  bossName: string;
+  participants: Array<{
+    name: string;
+    wallet: string;
+    damage: number;
+    damagePercent: number;
+    monEarned: number;
+  }>;
+  totalMon: number;
+  txHash?: string;
+  legendaryWinner?: string;
+  legendaryItem?: string;
+}
+
+export async function notifyDiscordBossKill(data: BossKillNotification): Promise<void> {
+  if (!DISCORD_WEBHOOK_URL) {
+    console.log('[Discord] No webhook URL configured, skipping notification');
+    return;
+  }
+
+  try {
+    const participantList = data.participants
+      .sort((a, b) => b.damage - a.damage)
+      .map((p, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '•';
+        const walletShort = `${p.wallet.slice(0, 6)}...${p.wallet.slice(-4)}`;
+        return `${medal} **${p.name}** — ${p.damage} dmg (${p.damagePercent.toFixed(1)}%) → **${p.monEarned.toFixed(4)} MON** \`${walletShort}\``;
+      })
+      .join('\n');
+
+    let description = `**${data.bossName}** has been slain!\n\n`;
+    description += `💰 **Total Pool:** ${data.totalMon.toFixed(4)} MON\n\n`;
+    description += `**Damage & Rewards:**\n${participantList}`;
+
+    if (data.legendaryWinner) {
+      description += `\n\n🏆 **LEGENDARY DROP:** ${data.legendaryWinner} received **${data.legendaryItem || 'Leviathan Spine'}**!`;
+    }
+
+    if (data.txHash) {
+      description += `\n\n📜 [View Transaction](https://testnet.monadexplorer.com/tx/${data.txHash})`;
+    }
+
+    const embed = {
+      title: `🐉 ${data.bossName} DEFEATED!`,
+      description,
+      color: 0xffd93d, // Gold
+      thumbnail: {
+        url: 'https://thereef.co/dashboard/assets/leviathan.gif'
+      },
+      footer: {
+        text: 'The Reef • Monad Testnet'
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    const response = await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: [embed] })
+    });
+
+    if (!response.ok) {
+      console.error('[Discord] Webhook failed:', response.status, await response.text());
+    } else {
+      console.log('[Discord] Boss kill notification sent');
+    }
+  } catch (err) {
+    console.error('[Discord] Failed to send notification:', err);
+  }
 }
 
 // ─── Entry Fee Collection ───
@@ -325,20 +374,30 @@ async function executePayoutUnchecked(
 /**
  * Distribute Leviathan pool to kill participants.
  * Uses smart contract in production, custodial in DEV_MODE.
- * @param participants - Map of agentId -> { address, damageShare (0-1) }
+ * @param participants - Map of agentId -> { address, damageShare (0-1), agentName? }
+ * @param totalDamage - Total damage dealt by all participants (for contract call)
+ * @param tick - Current game tick (for logging)
  */
 export async function distributeLeviathPool(
-  participants: Map<string, { address: string; damageShare: number }>
+  participants: Map<string, { address: string; damageShare: number; agentId?: string; agentName?: string }>,
+  totalDamage: number = 0,
+  tick: number = 0
 ): Promise<Map<string, PayoutResult>> {
   const results = new Map<string, PayoutResult>();
   
   // Production: Use smart contract
   const contract = getReefContract();
   if (contract && !DEV_MODE) {
-    const contractResult = await distributeLeviathPoolContract(participants);
-    // Contract does batch distribution, so all participants get same result
-    for (const [agentId] of participants) {
-      results.set(agentId, contractResult);
+    const contractResult = await distributeLeviathPoolContract(participants, totalDamage, tick);
+    // Contract does batch distribution - calculate individual shares from total
+    const totalDistributed = contractResult.amount || 0;
+    for (const [agentId, data] of participants) {
+      results.set(agentId, {
+        success: contractResult.success,
+        txHash: contractResult.txHash,
+        amount: totalDistributed * data.damageShare, // Individual share
+        error: contractResult.error,
+      });
     }
     return results;
   }
@@ -501,9 +560,13 @@ export async function verifyAgentEntry(agentAddress: string): Promise<boolean> {
 /**
  * Distribute Leviathan pool via smart contract.
  * Called by backend when Leviathan is killed.
+ * @param participants - Map of agentId -> { address, damageShare (0-1) }
+ * @param totalDamage - Total damage dealt by all participants
  */
 export async function distributeLeviathPoolContract(
-  participants: Map<string, { address: string; damageShare: number }>
+  participants: Map<string, { address: string; damageShare: number; agentId?: string; agentName?: string }>,
+  totalDamage: number = 0,
+  tick: number = 0
 ): Promise<PayoutResult> {
   const contract = getReefContract();
   
@@ -511,31 +574,85 @@ export async function distributeLeviathPoolContract(
     return { success: false, error: 'No contract configured' };
   }
   
-  if (!getAdminWallet()) {
+  const backendWallet = getBackendWallet();
+  if (!backendWallet) {
     return { success: false, error: 'No admin wallet configured' };
   }
   
   try {
+    // Get pool balance before distribution
+    const poolBefore = formatMonAmount(await contract.leviathanPool());
+    
+    // Get current spawn count to use as spawnId
+    const spawnCount = await contract.leviathanSpawnCount();
+    const spawnId = Number(spawnCount);
+    
     const winners: string[] = [];
     const shares: bigint[] = [];
+    const recipientData: Array<{ wallet: string; share: number; agentId?: string; agentName?: string }> = [];
     
-    for (const [, data] of participants) {
+    for (const [agentId, data] of participants) {
       if (!isValidAddress(data.address)) continue;
-      winners.push(checksumAddress(data.address));
+      const addr = checksumAddress(data.address);
+      winners.push(addr);
       shares.push(BigInt(Math.floor(data.damageShare * 10000))); // Basis points
+      recipientData.push({
+        wallet: addr,
+        share: data.damageShare,
+        agentId,
+        agentName: data.agentName,
+      });
     }
     
     if (winners.length === 0) {
       return { success: false, error: 'No valid participants' };
     }
     
-    const tx = await contract.distributeLeviathan(winners, shares);
+    console.log(`[Treasury] Calling distributeLeviathan(${spawnId}, ${winners.length} winners, shares, ${totalDamage})`);
+    
+    const tx = await contract.distributeLeviathan(spawnId, winners, shares, totalDamage);
     const receipt = await tx.wait(1);
     
-    return {
-      success: receipt?.status === 1,
-      txHash: tx.hash,
-    };
+    if (receipt?.status === 1) {
+      // Get pool balance after distribution
+      const poolAfter = formatMonAmount(await contract.leviathanPool());
+      const totalDistributed = poolBefore - poolAfter;
+      
+      // Log transaction to database
+      try {
+        const { db, schema } = await import('../db/index.js');
+        const seasonInfo = await getSeasonInfo();
+        
+        db.insert(schema.transactionLogs).values({
+          txHash: tx.hash,
+          type: 'leviathan_payout',
+          fromAddress: backendWallet.address,
+          recipients: JSON.stringify(recipientData.map(r => ({
+            ...r,
+            amount: totalDistributed * r.share,
+          }))),
+          totalAmount: totalDistributed,
+          poolBefore,
+          poolAfter,
+          seasonDay: seasonInfo.day,
+          spawnId,
+          tick,
+          createdAt: new Date().toISOString(),
+        }).run();
+        
+        console.log(`[Treasury] Logged tx ${tx.hash} - distributed ${totalDistributed.toFixed(4)} MON`);
+      } catch (logErr) {
+        console.error('[Treasury] Failed to log transaction:', logErr);
+      }
+      
+      return {
+        success: true,
+        txHash: tx.hash,
+        amount: totalDistributed,
+      };
+    }
+    
+    return { success: false, error: 'Transaction failed' };
   } catch (err) {
     console.error('[Treasury] Contract distribution failed:', err);
     return { success: false, error: String(err) };
@@ -544,10 +661,14 @@ export async function distributeLeviathPoolContract(
 
 /**
  * Distribute tournament prize via smart contract.
+ * @param winnerAddress - Champion's wallet address
+ * @param tier - 0=Bronze, 1=Silver, 2=Gold, 3=Legendary
+ * @param tournamentId - Optional tournament ID (defaults to current count)
  */
 export async function distributeTournamentPrizeContract(
   winnerAddress: string,
-  tier: number // 0=Bronze, 1=Silver, 2=Gold, 3=Legendary
+  tier: number, // 0=Bronze, 1=Silver, 2=Gold, 3=Legendary
+  tournamentId?: number
 ): Promise<PayoutResult> {
   const contract = getReefContract();
   
@@ -555,7 +676,7 @@ export async function distributeTournamentPrizeContract(
     return { success: false, error: 'No contract configured' };
   }
   
-  if (!getAdminWallet()) {
+  if (!getBackendWallet()) {
     return { success: false, error: 'No admin wallet configured' };
   }
   
@@ -564,7 +685,12 @@ export async function distributeTournamentPrizeContract(
   }
   
   try {
-    const tx = await contract.distributeTournament(checksumAddress(winnerAddress), tier);
+    // Get tournament ID from contract if not provided
+    const tId = tournamentId ?? Number(await contract.tournamentCount());
+    
+    console.log(`[Treasury] Calling distributeTournament(${tId}, ${winnerAddress}, ${tier})`);
+    
+    const tx = await contract.distributeTournament(tId, checksumAddress(winnerAddress), tier);
     const receipt = await tx.wait(1);
     
     return {
@@ -584,16 +710,18 @@ export async function getTreasuryStatus() {
   // If contract is configured, read pools from chain
   if (contract && !DEV_MODE) {
     try {
-      const [leviathanPool, tournamentPool, operationsPool, entryFee] = await Promise.all([
+      const [nullPool, leviathanPool, tournamentPool, operationsPool, currentEntryFee] = await Promise.all([
+        contract.nullPool(),
         contract.leviathanPool(),
         contract.tournamentPool(),
         contract.operationsPool(),
-        contract.entryFee(),
+        contract.getCurrentEntryFee(),
       ]);
       
       return {
         mode: 'contract',
         pools: {
+          null: formatMonAmount(nullPool),
           leviathan: formatMonAmount(leviathanPool),
           tournament: formatMonAmount(tournamentPool),
           operations: formatMonAmount(operationsPool),
@@ -605,9 +733,9 @@ export async function getTreasuryStatus() {
         contract: {
           address: REEF_CONTRACT_ADDRESS,
           version: REEF_CONTRACT_VERSION,
-          entryFee: formatMonAmount(entryFee),
+          currentEntryFee: formatMonAmount(currentEntryFee),
         },
-        adminConfigured: !!getAdminWallet(),
+        backendConfigured: !!getBackendWallet(),
       };
     } catch (err) {
       console.error('[Treasury] Failed to read contract state:', err);
@@ -646,6 +774,21 @@ export function getNullPool(): number {
 }
 
 export function getLeviathanPool(): number {
+  // In production, this returns 0 (in-memory not synced with contract)
+  // Use getLeviathanPoolAsync() for accurate on-chain balance
+  return formatMonAmount(treasuryState.leviathanPool);
+}
+
+export async function getLeviathanPoolAsync(): Promise<number> {
+  const contract = getReefContract();
+  if (contract && !DEV_MODE) {
+    try {
+      const poolBalance = await contract.leviathanPool();
+      return formatMonAmount(poolBalance);
+    } catch (err) {
+      console.error('[Treasury] Failed to read Leviathan pool from contract:', err);
+    }
+  }
   return formatMonAmount(treasuryState.leviathanPool);
 }
 
@@ -662,9 +805,28 @@ export function getOperationsPool(): number {
  * Similar to Leviathan but for the season finale boss.
  */
 export async function distributeNullPool(
-  participants: Map<string, { address: string; damageShare: number }>
+  participants: Map<string, { address: string; damageShare: number; agentId?: string; agentName?: string }>,
+  totalDamage: number = 0,
+  tick: number = 0
 ): Promise<Map<string, PayoutResult>> {
   const results = new Map<string, PayoutResult>();
+  
+  // Production: Use smart contract
+  const contract = getReefContract();
+  if (contract && !DEV_MODE) {
+    const contractResult = await distributeNullPoolContract(participants, totalDamage, tick);
+    // Contract does batch distribution - calculate individual shares from total
+    const totalDistributed = contractResult.amount || 0;
+    for (const [agentId, data] of participants) {
+      results.set(agentId, {
+        success: contractResult.success,
+        txHash: contractResult.txHash,
+        amount: totalDistributed * data.damageShare, // Individual share
+        error: contractResult.error,
+      });
+    }
+    return results;
+  }
   
   // DEV_MODE: Use custodial wallet
   const poolBalance = treasuryState.nullPool;
@@ -699,6 +861,78 @@ export async function distributeNullPool(
   treasuryState.nullPool = 0n;
 
   return results;
+}
+
+/**
+ * Distribute Null pool via smart contract.
+ * Called by backend when The Null is killed.
+ */
+async function distributeNullPoolContract(
+  participants: Map<string, { address: string; damageShare: number; agentId?: string; agentName?: string }>,
+  totalDamage: number = 0,
+  tick: number = 0
+): Promise<PayoutResult> {
+  const contract = getReefContract();
+  
+  if (!contract) {
+    return { success: false, error: 'Contract not available' };
+  }
+  
+  try {
+    // Build arrays for contract call
+    const winners: string[] = [];
+    const shares: bigint[] = [];
+    
+    for (const [, data] of participants) {
+      if (!isValidAddress(data.address)) continue;
+      winners.push(data.address);
+      // Convert damageShare (0-1) to basis points (0-10000)
+      shares.push(BigInt(Math.floor(data.damageShare * 10000)));
+    }
+    
+    if (winners.length === 0) {
+      return { success: false, error: 'No valid participants' };
+    }
+    
+    console.log(`[Treasury] Calling distributeNull(${winners.length} winners, shares, ${totalDamage})`);
+    
+    const tx = await contract.distributeNull(winners, shares, totalDamage);
+    const receipt = await tx.wait();
+    
+    // Get the actual amount distributed from the contract
+    const nullPoolBefore = await contract.nullPool();
+    
+    // Log to DB
+    try {
+      const { db, schema } = await import('../db/index.js');
+      const recipientsData = winners.map((w, i) => ({
+        wallet: w,
+        share: shares[i].toString(),
+      }));
+      await db.insert(schema.transactionLogs).values({
+        txHash: receipt.hash,
+        type: 'null_payout',
+        fromAddress: process.env.REEF_CONTRACT_ADDRESS || 'contract',
+        recipients: JSON.stringify(recipientsData),
+        totalAmount: formatMonAmount(nullPoolBefore),
+        poolBefore: formatMonAmount(nullPoolBefore),
+        poolAfter: 0,
+        tick,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (dbErr) {
+      console.error('[Treasury] Failed to log Null payout to DB:', dbErr);
+    }
+    
+    return {
+      success: true,
+      txHash: receipt.hash,
+      amount: formatMonAmount(nullPoolBefore),
+    };
+  } catch (err) {
+    console.error('[Treasury] distributeNull contract call failed:', err);
+    return { success: false, error: String(err) };
+  }
 }
 
 // ─── Season & Dynamic Entry Fee ───

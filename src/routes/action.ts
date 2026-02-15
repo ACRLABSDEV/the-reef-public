@@ -61,7 +61,7 @@ action.post('/', async (c) => {
     }, 400);
   }
 
-  const result = processAction({
+  const result = await processAction({
     agentId,
     action: actionType as ActionType,
     target,

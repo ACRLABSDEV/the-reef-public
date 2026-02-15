@@ -1,9 +1,6 @@
 // ─── Actions Engine (Example) ───
 // This is a placeholder showing the structure of the actions system.
 // The actual implementation handles all game actions: move, attack, gather, trade, etc.
-//
-// ⚠️ Full implementation is in our private repository.
-// Contact us if you need access for judging: https://github.com/ACRLABSDEV
 
 import type { ActionType, ActionResult } from '../types.js';
 

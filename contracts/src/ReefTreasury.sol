@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -21,7 +21,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
  *   - Pool unlock scales up (10% → 100% available for distribution)
  *   - Leftover MON rolls to next season (90%) with ops cut (10%)
  */
-contract ReefTreasury is Ownable, Pausable, ReentrancyGuard {
+contract ReefTreasury is Ownable2Step, Pausable, ReentrancyGuard {
     
     // ═══════════════════════════════════════════════════════════════════════
     // EVENTS

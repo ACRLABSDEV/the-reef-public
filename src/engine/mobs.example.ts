@@ -1,9 +1,6 @@
 // ─── Mob System (Example) ───
 // This is a placeholder showing the mob/combat structure.
 // The actual implementation handles all PvE encounters.
-//
-// ⚠️ Full implementation is in our private repository.
-// Contact us if you need access for judging: https://github.com/ACRLABSDEV
 
 export interface MobInstance {
   id: string;

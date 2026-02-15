@@ -21,28 +21,15 @@ enter.post('/', async (c) => {
   const body = await c.req.json();
   const { wallet, name, signature } = body;
 
-  if (!wallet || !name) {
-    return c.json({ error: 'wallet and name are required' }, 400);
-  }
-
-  // Input validation
-  if (typeof name !== 'string' || name.length < 2 || name.length > 20) {
-    return c.json({ error: 'Name must be 2-20 characters' }, 400);
-  }
-  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-    return c.json({ error: 'Name can only contain letters, numbers, underscores, and hyphens' }, 400);
+  // Wallet is always required
+  if (!wallet) {
+    return c.json({ error: 'wallet is required' }, 400);
   }
   if (typeof wallet !== 'string' || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
     return c.json({ error: 'Invalid wallet address format' }, 400);
   }
 
-  // Check for duplicate name
-  const existingName = getAgentByName(name);
-  if (existingName) {
-    return c.json({ error: `Name "${name}" is already taken. Choose a different name.` }, 400);
-  }
-
-  // Check if agent already exists
+  // Check if agent already exists FIRST (key recovery - name not required)
   const existing = getAgentByWallet(wallet);
   if (existing) {
     const apiKey = generateApiKey(existing.id);
@@ -59,6 +46,23 @@ enter.post('/', async (c) => {
       locationDescription: LOCATIONS[existing.location].description,
       entryStatus: 'already_registered',
     });
+  }
+
+  // For NEW registrations, name is required and must be valid
+  if (!name) {
+    return c.json({ error: 'name is required for new registrations' }, 400);
+  }
+  if (typeof name !== 'string' || name.length < 2 || name.length > 20) {
+    return c.json({ error: 'Name must be 2-20 characters' }, 400);
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
+    return c.json({ error: 'Name can only contain letters, numbers, underscores, and hyphens' }, 400);
+  }
+
+  // Check for duplicate name
+  const existingName = getAgentByName(name);
+  if (existingName) {
+    return c.json({ error: `Name "${name}" is already taken. Choose a different name.` }, 400);
   }
 
   // Verify wallet signature if provided
@@ -139,7 +143,7 @@ enter.post('/', async (c) => {
     hint: 'Use POST /action with your apiKey to interact. Try { "action": "look" } first.',
     docs: {
       skillFile: '/dashboard/skill.md',
-      fullUrl: 'https://the-reef-production.up.railway.app/dashboard/skill.md',
+      fullUrl: 'https://thereef.co/dashboard/skill.md',
       description: 'Read skill.md for complete command reference and gameplay guide.',
     },
     quickStart: [
@@ -220,6 +224,42 @@ enter.get('/status/:wallet', async (c) => {
     },
     season: seasonInfo,
     message: `Entry fee not yet paid. Current fee: ${currentFee} MON (Day ${seasonInfo.day}/7).`,
+  });
+});
+
+// POST /enter/admin/update-wallet — Update agent wallet (admin only)
+enter.post('/admin/update-wallet', async (c) => {
+  const adminKey = c.req.header('X-Admin-Key');
+  if (!adminKey || (adminKey !== process.env.ADMIN_KEY)) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const body = await c.req.json();
+  const { name, wallet } = body;
+
+  if (!name || !wallet) {
+    return c.json({ error: 'name and wallet required' }, 400);
+  }
+
+  const agent = getAgentByName(name);
+  if (!agent) {
+    return c.json({ error: `Agent "${name}" not found` }, 404);
+  }
+
+  // Update wallet in DB
+  const { db, schema } = await import('../db/index.js');
+  const { eq } = await import('drizzle-orm');
+  
+  db.update(schema.agents)
+    .set({ wallet: wallet })
+    .where(eq(schema.agents.id, agent.id))
+    .run();
+
+  return c.json({ 
+    success: true, 
+    agent: name, 
+    wallet: wallet,
+    message: `Updated wallet for ${name}` 
   });
 });
 

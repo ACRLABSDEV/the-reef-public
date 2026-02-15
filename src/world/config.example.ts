@@ -1,9 +1,6 @@
 // ─── World Configuration (Example) ───
 // This is a placeholder showing the world structure.
 // The actual config defines all zones, mobs, items, and game constants.
-//
-// ⚠️ Full implementation is in our private repository.
-// Contact us if you need access for judging: https://github.com/ACRLABSDEV
 
 import type { LocationId } from '../types.js';
 

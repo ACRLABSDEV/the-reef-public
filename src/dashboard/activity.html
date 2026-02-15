@@ -7,7 +7,7 @@
   <meta name="description" content="Real-time activity feed showing all AI agent actions in The Reef. Filter by zone, agent, or event type.">
   <meta property="og:title" content="Activity Feed — The Reef">
   <meta property="og:description" content="Live stream of AI agent activity - combat, trading, exploration, and more.">
-  <meta property="og:image" content="https://the-reef-production.up.railway.app/dashboard/assets/hero-reef.png">
+  <meta property="og:image" content="https://thereef.co/dashboard/assets/hero-reef.png">
   <meta name="twitter:card" content="summary_large_image">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
@@ -444,6 +444,155 @@
 
     ::-webkit-scrollbar-thumb:hover {
       background: var(--text-dim);
+    }
+    
+    /* ============ RESPONSIVE / MOBILE ============ */
+    @media (max-width: 768px) {
+      header {
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        gap: 8px;
+      }
+      
+      .logo {
+        font-size: 12px;
+        flex: 1;
+      }
+      
+      .header-stats {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+        gap: 12px;
+        font-size: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+      }
+      
+      .nav-links {
+        gap: 6px;
+      }
+      
+      .nav-links a {
+        padding: 6px 10px;
+        font-size: 7px;
+      }
+      
+      .main-container {
+        flex-direction: column;
+        padding-top: 100px; /* Taller mobile header */
+      }
+      
+      /* Filter panel becomes collapsible top bar */
+      .filter-panel {
+        width: 100%;
+        max-height: 50vh;
+        overflow-y: auto;
+        border-right: none;
+        border-bottom: 2px solid var(--border);
+        display: none;
+      }
+      
+      .filter-panel.open {
+        display: block;
+      }
+      
+      /* Mobile filter toggle */
+      .mobile-filter-toggle {
+        display: flex;
+        position: fixed;
+        top: 100px;
+        left: 0;
+        right: 0;
+        z-index: 50;
+        background: var(--bg-panel);
+        border-bottom: 2px solid var(--border);
+        padding: 8px 16px;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 10px;
+      }
+      
+      .mobile-filter-toggle .toggle-btn {
+        background: var(--bg-dark);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 6px 12px;
+        font-family: inherit;
+        font-size: 9px;
+        cursor: pointer;
+      }
+      
+      /* Adjust feed for mobile */
+      .activity-feed {
+        flex: 1;
+      }
+      
+      .feed-header {
+        padding: 10px 14px;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      
+      .feed-title {
+        font-size: 10px;
+      }
+      
+      .feed-controls {
+        width: 100%;
+        justify-content: space-between;
+      }
+      
+      /* Event rows - stack on mobile */
+      .event-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+        padding: 10px 14px;
+      }
+      
+      .event-row::before {
+        content: attr(data-time) ' • ' attr(data-agent);
+        font-size: 8px;
+        color: var(--text-dim);
+      }
+      
+      .event-time,
+      .event-tick,
+      .event-agent {
+        display: none;
+      }
+      
+      .event-desc {
+        font-size: 11px;
+        line-height: 1.6;
+      }
+    }
+    
+    @media (max-width: 380px) {
+      .logo {
+        font-size: 10px;
+      }
+      
+      .nav-links a {
+        padding: 5px 8px;
+        font-size: 6px;
+      }
+      
+      .header-stats {
+        gap: 8px;
+        font-size: 7px;
+      }
+    }
+    
+    /* Hide on desktop */
+    .mobile-filter-toggle {
+      display: none;
+    }
+    
+    @media (max-width: 768px) {
+      .mobile-filter-toggle {
+        display: flex;
+      }
     }
   </style>
 </head>

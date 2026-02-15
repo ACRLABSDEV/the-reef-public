@@ -134,7 +134,9 @@ export function initializeDatabase() {
       null_hp INTEGER NOT NULL DEFAULT 50000,
       null_max_hp INTEGER NOT NULL DEFAULT 50000,
       null_phase INTEGER NOT NULL DEFAULT 0,
-      last_reset TEXT
+      last_reset TEXT,
+      requirements_json TEXT,
+      contributions_json TEXT
     );
 
     -- Abyss Contributions (per agent)
@@ -434,6 +436,57 @@ export function initializeDatabase() {
       expires_at INTEGER
     );
     CREATE INDEX IF NOT EXISTS cooldowns_agent_idx ON cooldowns_v2(agent_id);
+    
+    CREATE TABLE IF NOT EXISTS transaction_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tx_hash TEXT NOT NULL,
+      type TEXT NOT NULL,
+      from_address TEXT NOT NULL,
+      recipients TEXT NOT NULL,
+      total_amount REAL NOT NULL,
+      pool_before REAL,
+      pool_after REAL,
+      season_day INTEGER,
+      spawn_id INTEGER,
+      tick INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS tx_logs_hash_idx ON transaction_logs(tx_hash);
+    CREATE INDEX IF NOT EXISTS tx_logs_type_idx ON transaction_logs(type);
+
+    -- Prediction Markets (Gambling)
+    CREATE TABLE IF NOT EXISTS prediction_markets (
+      id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      category TEXT NOT NULL,
+      options TEXT NOT NULL,
+      odds TEXT NOT NULL,
+      total_pool INTEGER NOT NULL DEFAULT 0,
+      outcome INTEGER,
+      resolved INTEGER NOT NULL DEFAULT 0,
+      expires_at_tick INTEGER NOT NULL,
+      created_tick INTEGER NOT NULL,
+      resolved_tick INTEGER,
+      reference_id TEXT,
+      reference_type TEXT
+    );
+    CREATE INDEX IF NOT EXISTS prediction_markets_category_idx ON prediction_markets(category);
+    CREATE INDEX IF NOT EXISTS prediction_markets_resolved_idx ON prediction_markets(resolved);
+
+    -- Prediction Bets
+    CREATE TABLE IF NOT EXISTS prediction_bets (
+      id TEXT PRIMARY KEY,
+      market_id TEXT NOT NULL REFERENCES prediction_markets(id),
+      agent_id TEXT NOT NULL REFERENCES agents(id),
+      agent_name TEXT NOT NULL,
+      option_index INTEGER NOT NULL,
+      amount INTEGER NOT NULL,
+      potential_win INTEGER NOT NULL,
+      paid_out INTEGER NOT NULL DEFAULT 0,
+      created_tick INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS prediction_bets_market_idx ON prediction_bets(market_id);
+    CREATE INDEX IF NOT EXISTS prediction_bets_agent_idx ON prediction_bets(agent_id);
   `);
 
   // Add columns to existing tables if they don't exist (migrations)
@@ -488,6 +541,20 @@ export function initializeDatabase() {
   const abyssExists = sqlite.prepare("SELECT id FROM abyss_state LIMIT 1").get();
   if (!abyssExists) {
     sqlite.prepare("INSERT INTO abyss_state (total_contributed, unlock_threshold, is_open, null_hp, null_max_hp, null_phase) VALUES (0, 10000, 0, 50000, 50000, 0)").run();
+  }
+  
+  // Migration: Add new columns to abyss_state for persistence
+  try {
+    sqlite.prepare("ALTER TABLE abyss_state ADD COLUMN requirements_json TEXT").run();
+    console.log('[DB] Added requirements_json column to abyss_state');
+  } catch (e) {
+    // Column already exists, ignore
+  }
+  try {
+    sqlite.prepare("ALTER TABLE abyss_state ADD COLUMN contributions_json TEXT").run();
+    console.log('[DB] Added contributions_json column to abyss_state');
+  } catch (e) {
+    // Column already exists, ignore
   }
 
   // Initialize leviathan state if not exists

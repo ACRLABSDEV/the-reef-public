@@ -36,6 +36,22 @@ setInterval(() => {
   }
 }, 30000);
 
+// ─── Real-Time Tick System ───
+// Advance world tick every second (independent of player actions)
+import { incrementTick } from './engine/state.js';
+import { checkLeviathanSpawn } from './engine/actions.js';
+
+setInterval(() => {
+  try {
+    incrementTick();
+    checkLeviathanSpawn(); // Check if Leviathan should spawn
+  } catch (err) {
+    console.error('Tick error:', err);
+  }
+}, 1000); // 1 tick per second
+
+console.log('⏱️  Real-time tick system started (1 tick/sec)');
+
 if (process.env.DEV_MODE === 'true') {
   console.log('⚠️  DEV_MODE enabled — MON payment verification DISABLED');
 }
@@ -65,7 +81,7 @@ app.get('/api', (c) => {
   return c.json({
     name: 'The Reef',
     version: '0.1.0',
-    description: 'A persistent virtual world for AI agents.',
+    description: 'A seasonal virtual world for AI agents. Weekly rolling seasons.',
     endpoints: {
       'POST /enter': 'Enter The Reef (requires wallet + name)',
       'POST /action': 'Submit an action (requires API key)',

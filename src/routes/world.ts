@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getAllAgents, getAgent, getWorldMeta, getRecentEvents, getInventory } from '../engine/state.js';
-import { getActiveBounties, getBossState, getAbyssState, getActiveDungeonsList, getFactionStats, getArenaState, getPredictionState } from '../engine/actions.js';
-import { CONSUMABLES, SHOP_EQUIPMENT, CURRENT_ROUTES } from '../engine/economy.js';
+import { getActiveBounties, getBossState, getBossStateDebug, getAbyssState, getActiveDungeonsList, getFactionStats, getArenaState, getPredictionState } from '../engine/actions.js';
+import { CONSUMABLES, SHOP_EQUIPMENT, CURRENT_ROUTES, getPredictionMarket } from '../engine/economy.js';
 import { LOCATIONS, RESOURCE_INFO, EQUIPMENT } from '../world/config.js';
 import { db, schema } from '../db/index.js';
 import { getTreasuryStatus, ENTRY_FEE, POOL_SPLITS, getSeasonInfo, getCurrentEntryFee } from '../services/treasury.js';
@@ -34,7 +34,7 @@ world.get('/discover', async (c) => {
     // ─── Identity ───
     world: {
       name: 'The Reef',
-      description: 'A persistent virtual world for AI agents. Explore, fight, trade, and earn MON.',
+      description: 'A virtual world for AI agents. Explore, fight, trade, and earn MON.',
       version: '1.0.0',
       chain: 'Monad',
     },
@@ -125,7 +125,7 @@ world.get('/discover', async (c) => {
 
     // ─── API Reference ───
     api: {
-      base: 'https://the-reef-production.up.railway.app',
+      base: 'https://thereef.co',
       endpoints: {
         enter: { method: 'POST', path: '/enter', auth: false },
         action: { method: 'POST', path: '/action', auth: 'X-API-Key header' },
@@ -152,15 +152,15 @@ world.get('/discover', async (c) => {
     // ─── For Third-Party Agents ───
     agentOnboarding: {
       skillFile: '/skill.md',
-      skillFileUrl: 'https://the-reef-production.up.railway.app/skill.md',
+      skillFileUrl: 'https://thereef.co/skill.md',
       instructions: 'Download skill.md and add to your agent\'s skills folder. The skill file contains everything needed to play The Reef.',
       alternateFormats: ['/skill', '/dashboard/skill.md'],
     },
 
     // ─── Links ───
     links: {
-      dashboard: 'https://the-reef-production.up.railway.app/dashboard',
-      skillFile: 'https://the-reef-production.up.railway.app/skill.md',
+      dashboard: 'https://thereef.co/dashboard',
+      skillFile: 'https://thereef.co/skill.md',
       github: 'https://github.com/ACRLABSDEV/the-reef',
     },
   };
@@ -667,7 +667,7 @@ world.get('/boss', (c) => {
 
 // GET /world/bosses — All world boss states for dashboard
 world.get('/bosses', (c) => {
-  const cached = cache.get(CACHE_KEYS.bosses?.() || 'world-bosses');
+  const cached = cache.get('world-bosses');
   if (cached) return c.json(cached);
 
   const leviathan = getBossState();
@@ -675,28 +675,29 @@ world.get('/bosses', (c) => {
   
   const response = {
     leviathan: {
-      active: leviathan.isAlive && leviathan.challengers.length > 0,
+      active: leviathan.isAlive && leviathan.participants.length > 0,
       hp: leviathan.hp,
       maxHp: leviathan.maxHp,
-      challengers: leviathan.challengers.map((id: string) => {
-        const agent = getAgent(id);
-        return agent ? { id, name: agent.name } : { id, name: 'Unknown' };
-      }),
+      challengers: leviathan.participants.map((p: { name: string; damage: number }) => ({
+        id: p.name,
+        name: p.name,
+        damage: p.damage,
+      })),
       isAlive: leviathan.isAlive,
-      respawnIn: leviathan.isAlive ? null : leviathan.respawnAt ? Math.max(0, leviathan.respawnAt - Date.now()) / 1000 : null,
+      respawnIn: leviathan.isAlive ? null : leviathan.nextSpawnIn,
     },
     null: abyss.isOpen ? {
-      active: abyss.currentChallengers?.length > 0,
+      active: abyss.topContributors?.length > 0,
       hp: abyss.nullHp,
       maxHp: abyss.nullMaxHp,
-      challengers: (abyss.currentChallengers || []).map((id: string) => {
-        const agent = getAgent(id);
-        return agent ? { id, name: agent.name } : { id, name: 'Unknown' };
-      }),
+      challengers: (abyss.topContributors || []).map((c) => ({
+        id: c.name,
+        name: c.name,
+      })),
     } : null,
   };
 
-  cache.set(CACHE_KEYS.bosses?.() || 'world-bosses', response, 5000); // 5s cache
+  cache.set('world-bosses', response, 5000); // 5s cache
   return c.json(response);
 });
 
@@ -741,6 +742,27 @@ world.get('/abyss', (c) => {
       ? 'Fight The Null: action=abyss target=challenge (from deep_trench)'
       : 'Contribute resources: action=abyss target=contribute params={resource, amount}',
   });
+});
+
+// POST /world/abyss/admin/contribute — Admin endpoint to force-contribute resources (for testing)
+world.post('/abyss/admin/contribute', async (c) => {
+  const adminKey = c.req.header('X-Admin-Key');
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return c.json({ error: 'Invalid admin key' }, 401);
+  }
+  
+  const body = await c.req.json();
+  const { resource, amount } = body;
+  
+  if (!resource || !amount) {
+    return c.json({ error: 'Missing resource or amount' }, 400);
+  }
+  
+  // Dynamically import to avoid circular deps
+  const { forceAbyssContribution } = await import('../engine/actions.js');
+  const result = forceAbyssContribution(resource, amount);
+  
+  return c.json(result);
 });
 
 // GET /world/zone/:zoneId — Detailed zone info for agents
@@ -1201,6 +1223,33 @@ world.get('/predictions', (c) => {
   return c.json(response);
 });
 
+// GET /world/predictions/:id — Get specific prediction market
+world.get('/predictions/:id', (c) => {
+  const marketId = c.req.param('id');
+  const market = getPredictionMarket(marketId);
+  
+  if (!market) {
+    return c.json({ error: 'Market not found', marketId }, 404);
+  }
+  
+  // Get bets for this market
+  const bets = db.select().from(schema.predictionBets)
+    .all()
+    .filter(b => b.marketId === marketId)
+    .map(b => ({
+      agentName: b.agentName,
+      option: market.options[b.optionIndex],
+      amount: b.amount,
+      potentialWin: b.potentialWin,
+    }));
+  
+  return c.json({
+    ...market,
+    bets,
+    betsCount: bets.length,
+  });
+});
+
 // GET /world/shop — Available items for purchase
 world.get('/shop', (c) => {
   const cached = cache.get(CACHE_KEYS.shop());
@@ -1360,4 +1409,118 @@ world.get('/treasury', async (c) => {
   });
 });
 
+// GET /world/admin/leviathan — Admin view of Leviathan state (debug)
+world.get('/admin/leviathan', (c) => {
+  const adminKey = c.req.header('X-Admin-Key');
+  if (!adminKey || (adminKey !== process.env.ADMIN_KEY)) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  
+  const debug = getBossStateDebug();
+  const boss = getBossState();
+  return c.json({
+    ...boss,
+    _debug: debug,
+  });
+});
+
+// POST /world/admin/wipe-db — Wipe all tables for fresh mainnet start
+world.post('/admin/wipe-db', async (c) => {
+  const adminKey = c.req.header('X-Admin-Key');
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return c.json({ error: 'Invalid admin key' }, 401);
+  }
+  
+  try {
+    const { db } = await import('../db/index.js');
+    
+    // Tables from schema.ts - delete in order to avoid FK issues
+    const tables = [
+      'world_events', 'transaction_logs', 'market_listings', 'agent_messages',
+      'inventory', 'vault', 'location_resources', 'trade_offers', 'quests',
+      'dungeon_instances', 'dungeon_chat', 'null_damage', 'abyss_contributions',
+      'abyss_state', 'boss_state', 'prediction_bets', 'prediction_markets',
+      'season_stats', 'prestige', 'seasons', 'agents', 'treasury'
+    ];
+    
+    const wiped: string[] = [];
+    const errors: string[] = [];
+    
+    for (const table of tables) {
+      try {
+        db.run(`DELETE FROM ${table}`);
+        wiped.push(table);
+      } catch (e: any) {
+        errors.push(`${table}: ${e.message}`);
+      }
+    }
+    
+    // Reset world state
+    try {
+      db.run(`DELETE FROM world_state`);
+      db.run(`INSERT INTO world_state (key, value) VALUES ('tick', '1')`);
+      db.run(`INSERT INTO world_state (key, value) VALUES ('day_cycle', 'day')`);
+      db.run(`INSERT INTO world_state (key, value) VALUES ('weather', 'calm')`);
+      wiped.push('world_state');
+    } catch (e: any) {
+      errors.push(`world_state: ${e.message}`);
+    }
+    
+    return c.json({ 
+      success: errors.length === 0, 
+      message: `Wiped ${wiped.length} tables. Tick reset to 1.`,
+      wiped,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 export default world;
+
+// POST /world/admin/wipe-db — Wipe all tables for fresh mainnet start
+world.post('/admin/wipe-db', async (c) => {
+  const adminKey = c.req.header('X-Admin-Key');
+  if (adminKey !== process.env.ADMIN_KEY) {
+    return c.json({ error: 'Invalid admin key' }, 401);
+  }
+  
+  try {
+    const { db } = await import('../db/index.js');
+    
+    // Drop all data from tables (order matters for foreign keys)
+    db.run(`DELETE FROM world_events`);
+    db.run(`DELETE FROM transaction_logs`);
+    db.run(`DELETE FROM prediction_bets`);
+    db.run(`DELETE FROM prediction_markets`);
+    db.run(`DELETE FROM market_listings`);
+    db.run(`DELETE FROM agent_messages`);
+    db.run(`DELETE FROM inventory`);
+    db.run(`DELETE FROM location_resources`);
+    db.run(`DELETE FROM arena_duels`);
+    db.run(`DELETE FROM combat_engagements`);
+    db.run(`DELETE FROM boss_state`);
+    db.run(`DELETE FROM parties_v2`);
+    db.run(`DELETE FROM dungeons_v2`);
+    db.run(`DELETE FROM pvp_engagements`);
+    db.run(`DELETE FROM season_stats`);
+    db.run(`DELETE FROM prestige`);
+    db.run(`DELETE FROM seasons`);
+    db.run(`DELETE FROM agents`);
+    
+    // Reset world state
+    db.run(`DELETE FROM world_state`);
+    db.run(`INSERT INTO world_state (key, value) VALUES ('tick', '1')`);
+    db.run(`INSERT INTO world_state (key, value) VALUES ('day_cycle', 'day')`);
+    db.run(`INSERT INTO world_state (key, value) VALUES ('weather', 'calm')`);
+    
+    return c.json({ 
+      success: true, 
+      message: 'All tables wiped. Tick reset to 1.',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});

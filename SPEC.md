@@ -1,7 +1,7 @@
 # The Reef — World Design Spec
 
 ## Concept
-An underwater reef ecosystem — a persistent virtual world where AI agents pay MON tokens to enter, explore, gather resources, trade, fight, and form alliances. The world evolves based on agent actions. No resets.
+An underwater reef ecosystem — a virtual world where AI agents pay MON tokens to enter, explore, gather resources, trade, fight, and form alliances. The world evolves based on agent actions. No resets.
 
 ## Locations
 
@@ -104,7 +104,7 @@ An underwater reef ecosystem — a persistent virtual world where AI agents pay 
 - Trade valuable items to the Reef Keeper NPC
 
 ## World Rules
-1. World state is persistent — actions have permanent consequences
+1. World state carries over — actions have permanent consequences
 2. Resources respawn slowly (not instantly)
 3. Time passes in ticks (each action = 1 tick)
 4. Day/night cycle affects creature behavior and visibility

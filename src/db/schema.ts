@@ -50,6 +50,25 @@ export const treasury = sqliteTable('treasury', {
   lastUpdated: text('last_updated').notNull(),
 });
 
+// ─── Transaction Logs (on-chain payouts) ───
+export const transactionLogs = sqliteTable('transaction_logs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  txHash: text('tx_hash').notNull(),
+  type: text('type').notNull(), // 'leviathan_payout' | 'null_payout' | 'tournament_payout' | 'entry_fee'
+  fromAddress: text('from_address').notNull(),
+  recipients: text('recipients').notNull(), // JSON array of { wallet, amount, agentId, agentName }
+  totalAmount: real('total_amount').notNull(), // Total MON distributed
+  poolBefore: real('pool_before'), // Pool balance before distribution
+  poolAfter: real('pool_after'), // Pool balance after distribution
+  seasonDay: integer('season_day'),
+  spawnId: integer('spawn_id'), // For boss kills
+  tick: integer('tick').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  txHashIdx: index('tx_logs_hash_idx').on(table.txHash),
+  typeIdx: index('tx_logs_type_idx').on(table.type),
+}));
+
 // ─── Inventory ───
 export const inventory = sqliteTable('inventory', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -140,6 +159,8 @@ export const abyssState = sqliteTable('abyss_state', {
   nullMaxHp: integer('null_max_hp').notNull().default(50000),
   nullPhase: integer('null_phase').notNull().default(0), // 0=dormant, 1-3=fight phases
   lastReset: text('last_reset'), // ISO timestamp
+  requirementsJson: text('requirements_json'), // JSON of ABYSS_REQUIREMENTS with current values
+  contributionsJson: text('contributions_json'), // JSON of per-agent contributions Map
 });
 
 // ─── Abyss Contributions (per agent) ───
@@ -183,7 +204,7 @@ export const dungeonChat = sqliteTable('dungeon_chat', {
 // ─── Agent Messages (DMs + Broadcasts) ───
 export const agentMessages = sqliteTable('agent_messages', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  fromAgentId: text('from_agent_id').notNull().references(() => agents.id),
+  fromAgentId: text('from_agent_id').notNull(), // 'system' for system messages, agent ID for player messages
   toAgentId: text('to_agent_id'), // null = broadcast to zone
   zoneId: text('zone_id'), // for broadcasts
   message: text('message').notNull(),
@@ -422,3 +443,40 @@ export const arenaDuels = sqliteTable('arena_duels_v2', {
   createdTick: integer('created_tick').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+// ─── Prediction Markets (Gambling) ───
+export const predictionMarkets = sqliteTable('prediction_markets', {
+  id: text('id').primaryKey(),
+  question: text('question').notNull(),
+  category: text('category').notNull(), // boss | tournament | world
+  options: text('options').notNull(), // JSON array of option strings
+  odds: text('odds').notNull(), // JSON array of multipliers
+  totalPool: integer('total_pool').notNull().default(0),
+  outcome: integer('outcome'), // index of winning option, null if unresolved
+  resolved: integer('resolved', { mode: 'boolean' }).notNull().default(false),
+  expiresAtTick: integer('expires_at_tick').notNull(),
+  createdTick: integer('created_tick').notNull(),
+  resolvedTick: integer('resolved_tick'),
+  // Reference to what triggered this (e.g., boss spawn id)
+  referenceId: text('reference_id'),
+  referenceType: text('reference_type'), // leviathan | null_boss | tournament
+}, (table) => ({
+  categoryIdx: index('prediction_markets_category_idx').on(table.category),
+  resolvedIdx: index('prediction_markets_resolved_idx').on(table.resolved),
+}));
+
+// ─── Prediction Bets ───
+export const predictionBets = sqliteTable('prediction_bets', {
+  id: text('id').primaryKey(),
+  marketId: text('market_id').notNull().references(() => predictionMarkets.id),
+  agentId: text('agent_id').notNull().references(() => agents.id),
+  agentName: text('agent_name').notNull(),
+  optionIndex: integer('option_index').notNull(),
+  amount: integer('amount').notNull(), // shells wagered
+  potentialWin: integer('potential_win').notNull(), // amount * odds
+  paidOut: integer('paid_out', { mode: 'boolean' }).notNull().default(false),
+  createdTick: integer('created_tick').notNull(),
+}, (table) => ({
+  marketIdx: index('prediction_bets_market_idx').on(table.marketId),
+  agentIdx: index('prediction_bets_agent_idx').on(table.agentId),
+}));

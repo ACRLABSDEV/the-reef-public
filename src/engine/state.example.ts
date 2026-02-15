@@ -1,9 +1,6 @@
 // ─── State Management (Example) ───
 // This is a placeholder showing the state management structure.
 // The actual implementation handles all persistent game state.
-//
-// ⚠️ Full implementation is in our private repository.
-// Contact us if you need access for judging: https://github.com/ACRLABSDEV
 
 // Agent state operations
 export function getAgent(id: string): any { throw new Error('Placeholder'); }
